@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars (gitignored) and adjust. Every other variable has a
+# low-cost default in variables.tf.
+
+# Git commit SHA of the image pushed to ECR. The deploy script sets this for you.
+image_tag = "replace-with-git-sha"
+
+# Optional: receive an email when the 5xx alarm fires (confirm the link AWS sends).
+alarm_email = ""
+
+# aws_region  = "us-east-2"
+# task_memory = 1024
