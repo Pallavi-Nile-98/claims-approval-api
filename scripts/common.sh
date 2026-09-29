@@ -20,6 +20,12 @@ TF_DIR="$REPO_ROOT/terraform"
 PROJECT="claims-approval-api"
 export AWS_REGION="${AWS_REGION:-us-east-2}"
 
+# Converts a Git Bash path (/tmp/x) into one native Windows tools can open (C:/.../x),
+# since path conversion is disabled above. A no-op on macOS/Linux, which lack cygpath.
+native_path() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
+
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
