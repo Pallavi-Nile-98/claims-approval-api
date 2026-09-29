@@ -1,0 +1,24 @@
+# Local development database only. The app runs from your IDE or `mvnw spring-boot:run`.
+# Values come from .env (copy .env.example to .env first).
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: claims-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      # Host 5434 because 5432/5433 are often taken by a native Postgres install.
+      - "${DB_HOST_PORT:-5434}:5432"
+    volumes:
+      - claims-db-data:/var/lib/postgresql/data
+    healthcheck:
+      # "Healthy" means Postgres accepts connections, not merely that the container started.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  claims-db-data:
