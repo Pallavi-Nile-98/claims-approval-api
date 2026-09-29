@@ -1,0 +1,34 @@
+# All environment-specific values come from environment variables, so the same
+# image runs locally and on ECS. There are deliberately no defaults for secrets.
+spring:
+  application:
+    name: claims-approval-api
+  config:
+    # Local dev convenience: read .env if present. In the container there is no
+    # .env (see .dockerignore), so real environment variables are used instead.
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    # Flyway owns the schema; Hibernate only checks that entities match it.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose only health; everything else stays off the network.
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
