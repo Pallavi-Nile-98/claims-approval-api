@@ -32,6 +32,14 @@ RUNNING_TASK_DEF=$(aws ecs describe-services --cluster "$CLUSTER" --services "$S
   || die "ECS rolled back: running $RUNNING_TASK_DEF, expected $EXPECTED_TASK_DEF. Check the service events and: aws logs tail $(tf_output log_group_name) --since 30m"
 
 log "Running $TAG ($RUNNING_TASK_DEF)"
+
+# "Stable" only means ECS runs the desired number of tasks, not that the app has finished
+# starting. Until the ALB health checks pass, requests can hit a JVM that isn't listening
+# yet (502: with every target unhealthy, the ALB "fails open" and still routes to them).
+log "Waiting for the load balancer to report the target healthy (up to 10 minutes)..."
+aws elbv2 wait target-in-service --target-group-arn "$(tf_output target_group_arn)" \
+  || die "Target never became healthy. Check: aws elbv2 describe-target-health --target-group-arn $(tf_output target_group_arn)"
+
 bash "$SCRIPT_DIR/verify.sh"
 
 log "Deployed. API: $(tf_output alb_url)   Swagger: $(tf_output swagger_url)"
