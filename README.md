@@ -1,5 +1,7 @@
 # Claims Approval API
 
+[![CI](https://github.com/Pallavi-Nile-98/claims-approval-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Pallavi-Nile-98/claims-approval-api/actions/workflows/ci.yml)
+
 A REST API where submitters create insurance claims and approvers review them.
 Claims move through `DRAFT -> SUBMITTED -> APPROVED | REJECTED`, and invalid
 transitions are rejected with a clear error. Built with Spring Boot 3 / Java 21,
@@ -83,7 +85,17 @@ curl -X POST localhost:8080/api/claims/1/approve -H "X-User-Id: bob"   -H "X-Use
 
 ## Tests
 
-_TODO (Phase 2)_
+**59 automated tests**: 41 unit + 18 integration, run by GitHub Actions on every push
+and pull request.
+
+| Kind | Command | Needs Docker | What it covers |
+|---|---|---|---|
+| Unit (`*Test`, Surefire) | `./mvnw test` | No | The full 4x4 status transition table (all 16 from/to pairs); every service action from every starting status; role, ownership and self-approval rules (Mockito, no Spring) |
+| Integration (`*IT`, Failsafe) | `./mvnw verify` | Yes | The HTTP API end to end against **real PostgreSQL 16** via Testcontainers: happy paths, pagination and filtering, every 400/403/404/409 case, optimistic locking, the database `CHECK` constraint, and `/actuator/health` |
+
+`./mvnw verify` runs both. Integration tests use a real database rather than H2
+because H2 only imitates Postgres: constraint and timestamp behaviour can differ, so a
+passing H2 test would prove less.
 
 ## Deploy to AWS
 
