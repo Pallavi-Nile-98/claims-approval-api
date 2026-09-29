@@ -24,6 +24,11 @@ output "ecs_service_name" {
   value = aws_ecs_service.app.name
 }
 
+output "task_definition_arn" {
+  description = "Revision just deployed; compared with what ECS is running to detect a rollback"
+  value       = aws_ecs_task_definition.app.arn
+}
+
 output "log_group_name" {
   description = "For: aws logs tail <name> --follow"
   value       = aws_cloudwatch_log_group.app.name
