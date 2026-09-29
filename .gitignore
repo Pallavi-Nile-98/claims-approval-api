@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Build output
+target/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Terraform (state can contain secrets; provider binaries are large)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
