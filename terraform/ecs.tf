@@ -72,12 +72,13 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 resource "aws_ecs_service" "app" {
-  name             = local.name
-  cluster          = aws_ecs_cluster.main.id
-  task_definition  = aws_ecs_task_definition.app.arn
-  desired_count    = var.desired_count
-  launch_type      = "FARGATE"
-  platform_version = "LATEST"
+  name            = local.name
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.app.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
+  # platform_version is left unset: ECS then uses the latest Fargate platform. Setting it
+  # to "LATEST" made every plan show a false diff, because AWS stores the resolved version.
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
