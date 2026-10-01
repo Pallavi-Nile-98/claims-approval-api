@@ -4,6 +4,8 @@
 source "$(dirname "$0")/common.sh"
 
 require_tools git docker
+docker info >/dev/null 2>&1 \
+  || die "Docker is installed but not running. Start Docker Desktop, wait for 'Engine running', then retry."
 require_clean_tree
 
 TAG=$(image_tag)
