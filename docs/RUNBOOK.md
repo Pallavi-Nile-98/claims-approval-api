@@ -133,3 +133,104 @@ version. The argument was removed so a clean plan really means "no drift".
   EventBridge rule on that event could notify immediately, instead of 25 minutes later.
 - **Alert on the real signal**: the ALB 5xx alarm fires only once users are affected. An alarm on
   `UnHealthyHostCount > 0` or on ECS task stops would catch the crash loop earlier.
+
+---
+
+## 2. Task can't start: the execution role is missing permission to read the DB secret
+
+**Note on the original brief**, which said "task role". On ECS, secrets injected into the container's
+environment (`secrets` in the task definition) are fetched by the **execution role**, before the
+app starts. The **task role** is what the application code uses while it runs. Removing the
+permission from the task role would change nothing here, so the exercise uses the execution role.
+
+**Induced by** replacing the execution role's inline policy with a copy that lacks only the
+`ReadDbPassword` statement (`ssm:GetParameters` on the one parameter), then forcing a new
+deployment, because secrets are only fetched when a task starts:
+
+```bash
+aws iam put-role-policy --role-name claims-approval-api-execution --policy-name least-privilege \
+  --policy-document file://exec-policy-without-ssm.json
+aws ecs update-service --cluster claims-approval-api --service claims-approval-api --force-new-deployment
+```
+
+### Symptom
+
+- **Users: none.** `scripts/verify.sh` kept passing 9/9 throughout.
+- **ECS:** every new task stopped within ~30 seconds with `ResourceInitializationError`, and
+  the application wrote **no logs at all**. After 4 attempts the deployment failed and rolled back.
+
+### Diagnosis
+
+```bash
+# 1. Service events: the whole answer is in the message.
+aws ecs describe-services --cluster claims-approval-api --services claims-approval-api \
+  --query 'services[0].events[:5].[createdAt,message]' --output text
+#   was unable to place a task. Reason: ResourceInitializationError: unable to pull secrets or
+#   registry auth: ... unable to retrieve secrets from ssm ... api error AccessDeniedException:
+#   User: arn:aws:sts::<acct>:assumed-role/claims-approval-api-execution/<task-id>
+#   is not authorized to perform: ssm:GetParameters on resource:
+#   arn:aws:ssm:us-east-2:<acct>:parameter/claims-approval-api/db/password
+#   because no identity-based policy allows the ssm:GetParameters action.
+
+# 2. Confirm in IAM what the role actually allows.
+aws iam get-role-policy --role-name claims-approval-api-execution --policy-name least-privilege \
+  --query 'PolicyDocument.Statement[].Sid' --output text
+#   EcrLogin  PullAppImage  WriteAppLogs        <- ReadDbPassword is gone
+
+# 3. Drift detection.
+terraform -chdir=terraform plan -var image_tag=<deployed-tag>
+#   ~ aws_iam_role_policy.execution will be updated in-place
+#   + Sid = "ReadDbPassword"  Action = "ssm:GetParameters"
+```
+
+**How to read an AccessDenied message:** it names **who** was denied (`assumed-role/claims-approval-api-execution`,
+so the execution role, not the task role), **what** action (`ssm:GetParameters`), on **which** resource (the
+parameter ARN), and **why** (`no identity-based policy allows` means nothing grants it; an explicit
+deny would say so). That is enough to write the missing policy statement.
+
+**Where the failure happens tells you the layer:**
+
+| Evidence | Layer |
+|---|---|
+| `ResourceInitializationError`, no app logs | ECS agent, before the container starts: image pull, secrets, log setup (**execution role**) |
+| App logs with a stack trace | Inside the application: config, DB, code (failures 1 and 4) |
+| Exit code 137 | The container was killed: memory (failure 5) |
+
+### Root cause
+
+The execution role lost `ssm:GetParameters` on the DB password parameter, so the ECS agent could
+not fetch the secret it must inject into the container, and every new task failed before the
+application started.
+
+Users were unaffected because of the rolling deployment (`minimum healthy percent = 100`): ECS only
+stops the old task once a new one is healthy, so the old task, which already had its password in
+memory, kept serving. After repeated failures the **deployment circuit breaker** marked the
+deployment failed and rolled back.
+
+### Fix
+
+```bash
+terraform -chdir=terraform plan  -var image_tag=<deployed-tag>   # expect: 0 to add, 1 to change
+terraform -chdir=terraform apply -var image_tag=<deployed-tag>
+```
+
+**Trap:** right after the apply, the service reported `deployment completed` and `steady state`, and
+`verify.sh` passed. But the events showed that this was the **rollback** completing
+(`deployment failed: tasks failed to start` -> `rolling back to deployment ...`): the old task was
+still running, and nothing had yet proved the fix. A forced new deployment did: a new task
+started, fetched the secret, connected to RDS (`HikariPool-1 - Start completed`) and became healthy.
+
+> "Steady state" means ECS is running what it wants to run, which may be the old version.
+> After a fix, confirm that a **new** task started and is healthy.
+
+### Prevention
+
+- **Change IAM only through Terraform** and review the plan: the diff showed exactly which
+  statement was missing. Deny `iam:PutRolePolicy` to humans outside the pipeline.
+- **Keep the circuit breaker with rollback**: it kept users unaffected and stopped the retry loop.
+- **Alarm on failed deployments**: an EventBridge rule on ECS
+  `SERVICE_DEPLOYMENT_FAILED` events catches this immediately, whereas the 5xx alarm never
+  fired because users never saw an error.
+- **Check new IAM changes before deploying**: the IAM policy simulator
+  (`aws iam simulate-principal-policy`) can confirm that the execution role allows `ssm:GetParameters` on the
+  parameter ARN.
