@@ -188,6 +188,14 @@ async function loadClaims() {
     params.set('status', state.status);
   }
 
+  // With nothing on screen yet, say so instead of showing an empty table that looks like
+  // "no claims". Existing rows stay visible during later reloads to avoid flicker.
+  const hasRows = el('claims-body').children.length > 0;
+  if (!hasRows) {
+    el('claims-empty').textContent = 'Loading claims…';
+    el('claims-empty').hidden = false;
+  }
+
   try {
     const page = await api('GET', `api/claims?${params}`);
     if (request !== state.listRequest) {
@@ -202,6 +210,9 @@ async function loadClaims() {
   } catch (error) {
     if (request === state.listRequest) {
       showError(error);
+      if (!hasRows) {
+        el('claims-empty').textContent = 'Could not load claims. Try Refresh.';
+      }
     }
   }
 }
