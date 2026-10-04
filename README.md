@@ -32,30 +32,31 @@ curl http://localhost:8080/actuator/health
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     client(["Browser or API client"])
 
-    subgraph aws["AWS account, us-east-2"]
-        subgraph vpc["VPC 10.0.0.0/16 across 2 Availability Zones"]
-            subgraph public["Public subnets: route to the internet gateway"]
-                alb["Application Load Balancer<br/>HTTP :80"]
-                task["ECS Fargate task<br/>Spring Boot API + web UI<br/>0.25 vCPU, 1 GB, public IP"]
-            end
-            subgraph private["Private subnets: no internet route"]
-                rds[("RDS PostgreSQL 16<br/>db.t4g.micro, single-AZ")]
-            end
+    subgraph vpc["VPC across 2 Availability Zones"]
+        subgraph public["Public subnets"]
+            alb["Application Load Balancer<br/>HTTP :80"]
+            task["ECS Fargate task<br/>Spring Boot API + web UI<br/>0.25 vCPU, 1 GB"]
         end
-        ecr["ECR<br/>image tagged with the git commit"]
-        ssm["SSM Parameter Store<br/>DB password, SecureString"]
-        cw["CloudWatch<br/>logs and 5xx alarm to SNS"]
+        subgraph private["Private subnets, no internet route"]
+            rds[("RDS PostgreSQL 16<br/>db.t4g.micro, single-AZ")]
+        end
     end
 
-    client -->|"HTTP :80"| alb
-    alb -->|":8080, only the ALB's security group<br/>health check /actuator/health"| task
-    task -->|":5432, only the app's security group"| rds
-    task -.->|"pull image"| ecr
-    task -.->|"read password at start"| ssm
-    task -.->|"logs"| cw
+    subgraph services["AWS services"]
+        direction TB
+        ecr["ECR<br/>container image"]
+        ssm["SSM Parameter Store<br/>DB password"]
+        cw["CloudWatch<br/>logs, 5xx alarm"]
+        ecr ~~~ ssm ~~~ cw
+    end
+
+    client -->|":80"| alb
+    alb -->|":8080, from the ALB only"| task
+    task -->|":5432, from the app only"| rds
+    task -.->|"HTTPS, no NAT gateway"| services
 ```
 
 How a request flows:
