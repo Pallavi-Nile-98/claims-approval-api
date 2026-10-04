@@ -33,6 +33,39 @@
       <button type="button" id="banner-close" class="banner-close" aria-label="Dismiss message">&times;</button>
     </div>
 
+    <section class="card" aria-labelledby="create-heading">
+      <h2 id="create-heading">New claim</h2>
+      <p id="create-approver-note" class="muted small">
+        Approvers review claims. Switch to a submitter (alice or carol) to create one.
+      </p>
+      <!-- novalidate: the API is the single source of truth for validation; its messages are shown per field. -->
+      <form id="create-form" novalidate>
+        <div class="form-grid">
+          <div class="field">
+            <label for="title">Title</label>
+            <input id="title" name="title" maxlength="200" autocomplete="off" aria-describedby="title-error">
+            <p id="title-error" class="field-error" hidden></p>
+          </div>
+          <div class="field">
+            <label for="amount">Amount</label>
+            <input id="amount" name="amount" type="number" inputmode="decimal" step="0.01" min="0.01"
+                   aria-describedby="amount-error">
+            <p id="amount-error" class="field-error" hidden></p>
+          </div>
+          <div class="field field-wide">
+            <label for="description">Description <span class="muted">(optional)</span></label>
+            <textarea id="description" name="description" rows="2" maxlength="2000"
+                      aria-describedby="description-error"></textarea>
+            <p id="description-error" class="field-error" hidden></p>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" id="create-btn" class="btn btn-primary">Create draft</button>
+          <span class="muted small">New claims start as drafts. Submit them for review from the table.</span>
+        </div>
+      </form>
+    </section>
+
     <section class="card" aria-labelledby="claims-heading">
       <div class="card-header">
         <h2 id="claims-heading">Claims</h2>

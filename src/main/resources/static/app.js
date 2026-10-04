@@ -99,6 +99,7 @@ function renderUserSelect() {
     state.user = USERS.find((user) => userKey(user) === select.value);
     rememberUser(state.user);
     hideBanner();
+    clearFieldErrors();
     onUserChanged();
   });
 }
@@ -112,6 +113,70 @@ function onUserChanged() {
     : 'Submitters see only their own claims.';
   state.page = 0;
   loadClaims();
+}
+
+// ---------- Create claim ----------
+
+const FORM_FIELDS = ['title', 'amount', 'description']; // same order as on the page
+
+async function createClaim(event) {
+  event.preventDefault();
+  clearFieldErrors();
+  hideBanner();
+
+  // No client-side rules: the API validates and its messages are shown per field.
+  const amountText = el('amount').value.trim();
+  const body = {
+    title: el('title').value.trim(),
+    description: el('description').value.trim() || null,
+    amount: amountText === '' ? null : Number(amountText),
+  };
+
+  setBusy(el('create-btn'), true);
+  try {
+    const claim = await api('POST', 'api/claims', body);
+    el('create-form').reset();
+    showBanner(`Claim #${claim.id} created as a draft. Submit it for review when ready.`, 'success');
+    // Show the new claim: it is the newest, so it appears first on page 1 of "All".
+    state.status = '';
+    el('status-filter').value = '';
+    state.page = 0;
+    await loadClaims();
+  } catch (error) {
+    if (error.status === 400 && Array.isArray(error.problem?.errors)) {
+      showFieldErrors(error.problem.errors);
+    } else {
+      showError(error);
+    }
+  } finally {
+    setBusy(el('create-btn'), false);
+  }
+}
+
+function showFieldErrors(errors) {
+  for (const { field, message } of errors) {
+    if (!FORM_FIELDS.includes(field)) {
+      continue;
+    }
+    el(`${field}-error`).textContent = message;
+    el(`${field}-error`).hidden = false;
+    el(field).setAttribute('aria-invalid', 'true');
+  }
+  showBanner('Please fix the highlighted fields.', 'error');
+  // Focus the first invalid field in form order (the API's error order is arbitrary).
+  FORM_FIELDS.map(el).find((input) => input.getAttribute('aria-invalid') === 'true')?.focus();
+}
+
+function clearFieldErrors() {
+  for (const field of FORM_FIELDS) {
+    el(`${field}-error`).hidden = true;
+    el(field).removeAttribute('aria-invalid');
+  }
+}
+
+function setBusy(button, busy) {
+  button.disabled = busy;
+  button.setAttribute('aria-busy', String(busy));
 }
 
 // ---------- Claims list ----------
@@ -243,6 +308,7 @@ function init() {
   state.user = restoreUser();
   renderUserSelect();
   el('banner-close').addEventListener('click', hideBanner);
+  el('create-form').addEventListener('submit', createClaim);
 
   el('status-filter').addEventListener('change', (event) => {
     state.status = event.target.value;
