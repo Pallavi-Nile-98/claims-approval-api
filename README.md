@@ -195,7 +195,7 @@ The first deploy creates only the ECR repository, pushes the image, then creates
 rest. This ordering is needed because the ECS service needs an image before it can start.
 
 **Cost:** about $0.07/hour (~$53/month if left running), mostly the load balancer, RDS
-and public IPv4 addresses. **Run `destroy.sh` after every session.**
+and public IPv4 addresses ([breakdown](#cost)). **Run `destroy.sh` after every session.**
 
 ## Design decisions
 
@@ -347,3 +347,53 @@ alarms on `UnHealthyHostCount`, failed ECS deployments and out-of-memory task st
 | **Performance efficiency** | Memory sized from measurement (about 330 MiB used, 1 GB task); Java heap sized as a percentage of container memory; page size capped at 100 | 0.25 vCPU means a cold start of about 80 seconds |
 | **Cost optimization** | No NAT gateway; smallest instance and task sizes; free SSM tier; image and log retention limits; cost-allocation tags; destroyed after every session | x86 instead of Graviton (the local Docker setup can't build arm64 images) |
 | **Sustainability** | Right-sized resources; nothing runs while not in use | Same Graviton gap |
+
+## Cost
+
+Estimated on-demand prices in us-east-2, if the stack were left running all month:
+
+| Resource | Size | ≈ $/month |
+|---|---|---|
+| Application Load Balancer | 1 load balancer, minimal traffic | 17.00 |
+| RDS PostgreSQL | `db.t4g.micro`, single-AZ | 11.70 |
+| RDS storage | 20 GB gp3, encrypted | 2.30 |
+| ECS Fargate | 0.25 vCPU / 1 GB, x86 | 10.60 |
+| Public IPv4 addresses | 2 for the ALB, 1 for the task ($0.005/hour each) | 10.95 |
+| CloudWatch, ECR, SNS, SSM | 7-day logs, 1 alarm, last 5 images, a standard parameter | < 1 |
+| NAT gateway | **not created** | 0 (saves ~33) |
+| **Total** | | **≈ 53/month, ≈ 0.07/hour** |
+
+**How it's actually run:** deploy for a working session, then `destroy.sh`. A three-hour session costs
+about $0.20, and the whole project, including the break-fix exercises, cost a few dollars. Every
+resource carries a `Project` tag, so Cost Explorer can show exactly what it spent, and a $10 AWS
+Budgets alert guards against anything left running.
+
+## What I'd change for production
+
+- **HTTPS:** an ACM certificate and a domain in Route 53, with HTTP redirected to HTTPS.
+- **Real authentication:** Amazon Cognito (OIDC), validated by the ALB or by Spring Security, replacing
+  the demo headers.
+- **No public IPs on tasks:** private subnets with VPC endpoints (or a NAT gateway).
+- **High availability:** Multi-AZ RDS, at least two tasks across Availability Zones with service auto
+  scaling, longer backup retention, deletion protection and a final snapshot.
+- **A real delivery pipeline:** Terraform state in S3 with versioning, encryption and locking;
+  GitHub Actions assuming an AWS role through OIDC (no long-lived keys), running `plan` on pull
+  requests and `apply` after approval.
+- **The monitoring the runbook proved necessary:** alarms on `UnHealthyHostCount`, failed ECS
+  deployments and out-of-memory task stops, plus scheduled drift detection.
+- **More protection:** AWS WAF on the load balancer, and Secrets Manager with automatic rotation.
+- **Graviton:** arm64 images built in CI for cheaper, more efficient compute.
+
+## Break-fix runbook
+
+[docs/RUNBOOK.md](docs/RUNBOOK.md) documents five failures induced on the live deployment, each
+diagnosed with real tools (AWS CLI, ECS events, CloudWatch Logs, target health, `nslookup`,
+`terraform plan`) and written up as symptom -> diagnosis -> root cause -> fix -> prevention.
+
+| # | Failure | The decisive clue |
+|---|---|---|
+| 1 | Database security group rule removed | `Connect timed out` in the app log, and the DB security group had no inbound rules; hidden for ~25 minutes by connection tracking |
+| 2 | Execution role can't read the DB secret | `ResourceInitializationError ... AccessDeniedException ... ssm:GetParameters`, with no app logs at all |
+| 3 | Wrong health check path | Target health `ResponseCodeMismatch [404]`, while the ALB failed open and kept serving |
+| 4 | Bad `DB_URL` deployed | Exit code 1 and `FATAL: database "claim" does not exist`, then an automatic rollback |
+| 5 | Memory limit too low | Exit code 137 and `OutOfMemoryError: container killed due to memory usage` |
