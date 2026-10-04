@@ -34,8 +34,45 @@
     </div>
 
     <section class="card" aria-labelledby="claims-heading">
-      <h2 id="claims-heading">Claims</h2>
-      <p class="muted">Claims will appear here.</p>
+      <div class="card-header">
+        <h2 id="claims-heading">Claims</h2>
+        <div class="filters">
+          <label for="status-filter">Status</label>
+          <select id="status-filter">
+            <option value="">All</option>
+            <option value="DRAFT">Draft</option>
+            <option value="SUBMITTED">Submitted</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+          <button type="button" id="refresh-btn" class="btn btn-secondary">Refresh</button>
+        </div>
+      </div>
+      <p id="scope-note" class="muted small scope-note"></p>
+
+      <div class="table-wrap">
+        <table class="claims-table">
+          <thead>
+            <tr>
+              <th scope="col">ID</th>
+              <th scope="col">Title</th>
+              <th scope="col" class="num">Amount</th>
+              <th scope="col">Status</th>
+              <th scope="col">Submitter</th>
+              <th scope="col">Approver</th>
+              <th scope="col">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="claims-body"></tbody>
+        </table>
+      </div>
+      <p id="claims-empty" class="empty" hidden></p>
+
+      <nav id="pager" class="pager" aria-label="Claims pages" hidden>
+        <button type="button" id="prev-btn" class="btn btn-secondary">Previous</button>
+        <span id="page-info" class="muted small"></span>
+        <button type="button" id="next-btn" class="btn btn-secondary">Next</button>
+      </nav>
     </section>
   </main>
 </body>

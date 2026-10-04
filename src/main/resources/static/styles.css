@@ -86,6 +86,20 @@ code {
   color: var(--muted);
 }
 
+.small {
+  font-size: 0.875rem;
+}
+
+/* Hidden on screen but still read by screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* ---------- Layout ---------- */
 
 .topbar {
@@ -204,6 +218,148 @@ textarea {
   border-color: var(--muted);
 }
 
+/* ---------- Claims table ---------- */
+
+.card-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.filters label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.scope-note {
+  margin: 4px 0 12px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.claims-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.925rem;
+}
+
+.claims-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.claims-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.claims-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.claim-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.claim-desc {
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+/* Status is always shown as text too, so colour is never the only signal. */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-draft {
+  background: #eef1f4;
+  color: #4a5563;
+}
+
+.badge-submitted {
+  background: #e3ecfd;
+  color: #1e4fb0;
+}
+
+.badge-approved {
+  background: #e3f4e8;
+  color: #1e6b34;
+}
+
+.badge-rejected {
+  background: #fde8e6;
+  color: #a12b20;
+}
+
+@media (prefers-color-scheme: dark) {
+  .badge-draft {
+    background: #2a333d;
+    color: #c4ccd5;
+  }
+
+  .badge-submitted {
+    background: #1d2f52;
+    color: #b8cdf8;
+  }
+
+  .badge-approved {
+    background: #173324;
+    color: #a7e3b9;
+  }
+
+  .badge-rejected {
+    background: #3d1d1a;
+    color: #f5b8b0;
+  }
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.pager {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.pager[hidden],
+.empty[hidden] {
+  display: none;
+}
+
 /* ---------- Messages ---------- */
 
 .banner {
@@ -254,5 +410,51 @@ textarea {
 
   .card {
     padding: 16px;
+  }
+
+  /* The table becomes a list of cards: each cell shows its column name. */
+  .claims-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .claims-table,
+  .claims-table tbody,
+  .claims-table tr,
+  .claims-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .claims-table tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 12px;
+    margin-bottom: 10px;
+  }
+
+  .claims-table td {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    border: none;
+    padding: 5px 0;
+    text-align: right;
+  }
+
+  .claims-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  .pager {
+    justify-content: space-between;
   }
 }
