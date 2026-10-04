@@ -275,8 +275,8 @@ aws elbv2 modify-target-group --target-group-arn <tg-arn> --health-check-path /a
 
 - **Users mostly unaffected.** `scripts/verify.sh` passed 9/9 while the only target was marked `unhealthy`.
 - **ECS churn:** `Amazon ECS replaced 1 tasks due to an unhealthy status`, every few minutes. Left
-  running unnoticed for about **two days**, this produced a continuous loop of task replacements (17
-  stopped tasks were still listed after the last hour alone).
+  running unnoticed for about **33 hours** (Oct 2 16:48 to Oct 4 01:28), this produced a continuous loop
+  of task replacements. ECS only lists stopped tasks for about an hour, and 17 were listed.
 - During each replacement, the ~80 s while the new JVM starts can return **502** to users:
   an intermittent outage that's easy to miss.
 
@@ -342,7 +342,7 @@ replacements), `verify.sh` 9/9, and `terraform plan` reporting `No changes`.
 
 ### Prevention
 
-- **Alarm on `UnHealthyHostCount > 0`** for the target group. This failure ran for two days, and the
+- **Alarm on `UnHealthyHostCount > 0`** for the target group. This failure ran for about 33 hours, and the
   5xx alarm never fired because fail-open kept most requests succeeding.
 - **Alarm on task churn**: an EventBridge rule on ECS task state changes with `stoppedReason`
   containing "unhealthy", or a metric on the number of tasks started per hour.
@@ -351,7 +351,7 @@ replacements), `verify.sh` 9/9, and `terraform plan` reporting `No changes`.
 - **Health endpoints are a contract**: if the app ever changes its health path, change the ALB in the
   same pull request. A test (`HealthEndpointIT`) already pins `/actuator/health` to 200 in the app.
 - **Operational habit:** destroy, or at least check, the stack before stepping away mid-exercise. This
-  incident ran unattended for two days and cost about $3-4 of credits.
+  incident ran unattended for about 33 hours, roughly $2.50 of avoidable cost at about $0.07/hour.
 
 ---
 

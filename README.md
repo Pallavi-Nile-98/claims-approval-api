@@ -334,7 +334,7 @@ through SNS.
 
 **Trade-off, learned the hard way:** of the five induced failures, the 5xx alarm caught only one.
 Rollbacks, the ALB failing open, and connection tracking hid the others from users and from
-the alarm, including a task-replacement loop that ran unnoticed for two days. Production would add
+the alarm, including a task-replacement loop that ran unnoticed for about 33 hours. Production would add
 alarms on `UnHealthyHostCount`, failed ECS deployments and out-of-memory task stops.
 
 ## AWS Well-Architected mapping
