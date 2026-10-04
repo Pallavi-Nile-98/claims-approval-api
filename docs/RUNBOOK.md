@@ -6,6 +6,31 @@ diagnosed with real tools and fixed. Each entry follows the same shape:
 
 Timestamps are from the actual session (local time, EDT). Outputs are trimmed but real.
 
+## At a glance
+
+| # | Failure | What users saw | Decisive evidence | Fixed by |
+|---|---|---|---|---|
+| 1 | DB security group rule removed | Nothing for ~25 min, then **502** on every request | `Connect timed out` in app logs; DB security group `IpPermissions: []` | `terraform apply` (drift) |
+| 2 | Execution role can't read the DB secret | Nothing (rollback) | `ResourceInitializationError ... AccessDeniedException ... ssm:GetParameters`, no app logs | `terraform apply` (drift) |
+| 3 | Wrong ALB health check path | Mostly nothing (ALB fails open), intermittent 502 while tasks were replaced | `Target.ResponseCodeMismatch [404]`; ECS replacing tasks every few minutes | `terraform apply` (drift) |
+| 4 | Bad `DB_URL` deployed | Nothing (rollback) | Exit code **1**; `FATAL: database "claim" does not exist` | Revert source, redeploy |
+| 5 | Memory limit too low | Nothing (rollback) | Exit code **137**; `OutOfMemoryError: container killed due to memory usage`; log ends mid-startup | Revert source, redeploy |
+
+**Patterns across all five:**
+
+- **Read the exact error wording.** *Timed out* (network), *AccessDenied* (IAM), *ResponseCodeMismatch [404]* (wrong
+  path), *database does not exist* (config) and exit *137* (memory) each point to a different layer.
+- **Where it fails tells you the layer.** No app logs means it failed before the container ran (execution role,
+  image, secrets). A stack trace means the problem is inside the app. A log that stops mid-sentence means the
+  process was killed from outside.
+- **"Steady state" does not mean "fixed".** The circuit breaker rolls back and reports stable. After a fix, confirm
+  a **new** task on the **new** revision is running and healthy.
+- **The 5xx alarm caught only one of five.** Rollbacks, fail-open and connection tracking hid the others from users
+  and from the alarm. Production monitoring also needs `UnHealthyHostCount`, failed-deployment events
+  and task-stop reasons.
+- **Manual changes are drift.** `terraform plan` pinpointed failures 1-3 in one line each, and `apply` restored them
+  exactly.
+
 ## Environment notes (Windows)
 
 These cost time during the exercises and are common in real support tickets:
@@ -430,3 +455,103 @@ passes 9/9, `terraform plan` reports `No changes`, and `git status` is clean.
 - **Alert on `SERVICE_DEPLOYMENT_FAILED`** (EventBridge, ECS deployment state change events). The 5xx
   alarm stays silent when a rollback protects users.
 - **Keep the circuit breaker with rollback enabled.** It turned a potential outage into a non-event.
+
+---
+
+## 5. Container killed: memory limit too low (OOM)
+
+**Note on the original brief**, which said "task memory set too low". On Fargate the smallest task size for
+0.25 vCPU is **512 MiB**, and this image sizes the Java heap as a percentage of the container's memory
+(`-XX:MaxRAMPercentage=75`). Measured locally with Docker under the same conditions as Fargate (no swap:
+`--memory=X --memory-swap=X`):
+
+| Memory limit | Result |
+|---|---|
+| 1 GiB | healthy, ~330 MiB used |
+| 512 MiB (Fargate minimum) | healthy, ~294 MiB used |
+| 256 MiB | healthy, 238 of 256 MiB used (the heap shrank to fit) |
+| **192 MiB** | **killed during startup, 2 of 2 runs: `OOMKilled=true`, exit code 137** |
+
+So the smallest task size can't make this app run out of memory. The realistic way it happens on
+Fargate is a **container-level hard limit** (`memory` in the container definition) set below what
+the JVM needs. The kernel enforces it the same way (a cgroup memory limit), with the same symptoms.
+Testing locally first predicted the outcome before anything was changed in AWS.
+
+**Induced by** a local, never-committed edit adding `memory = 192` to the container definition (the task
+stayed at 1024 MiB), deployed with `terraform apply` as task definition **revision 7**.
+
+### Symptom
+
+- **Users: none.** The revision-6 task kept serving; the circuit breaker rolled back at 05:32:37.
+- **ECS:** four revision-7 tasks, each killed about 1.5-2 minutes into startup.
+
+### Diagnosis
+
+```bash
+# 1. Service events: failed deployment and rollback (same shape as failure 4).
+aws ecs describe-services --cluster claims-approval-api --services claims-approval-api \
+  --query 'services[0].events[:5].[createdAt,message]' --output text
+#   (deployment ...) deployment failed: tasks failed to start.
+#   rolling back to deployment ...
+
+# 2. How did the tasks die? The task-level stoppedReason is generic
+#    ("Essential container in task exited"); the CONTAINER's reason is the answer.
+for t in $(aws ecs list-tasks --cluster claims-approval-api --desired-status STOPPED --query 'taskArns' --output text); do
+  aws ecs describe-tasks --cluster claims-approval-api --tasks $t \
+    --query 'tasks[0].[taskDefinitionArn,containers[0].exitCode,containers[0].reason]' --output text
+done
+#   claims-approval-api:7  137  OutOfMemoryError: container killed due to memory usage   (x4)
+#   claims-approval-api:4  143  None                                                      (normal stop)
+
+# 3. How does the log end? Mid-startup, with no error and no stack trace.
+aws logs tail /ecs/claims-approval-api --since 5m --format short | tail -5
+#   ... HHH000412: Hibernate ORM core version 6...
+#   ... HHH000026: Second-level cache disabled            <- then nothing
+
+# 4. Compare the memory settings: task vs container.
+aws ecs describe-task-definition --task-definition claims-approval-api:7 \
+  --query 'taskDefinition.[memory,containerDefinitions[0].memory]' --output text
+#   1024   192
+```
+
+**Exit codes:**
+
+| Exit code | Meaning | Log ends with |
+|---|---|---|
+| `1` | The app exited by itself on an error (failure 4) | A `Caused by:` stack trace |
+| `137` = 128 + 9, SIGKILL | Killed instantly from outside, here by the kernel OOM killer | Nothing: cut off mid-startup |
+| `143` = 128 + 15, SIGTERM | Asked to stop, e.g. ECS replacing a task during a deploy | A graceful shutdown |
+
+### Root cause
+
+The container's hard memory limit (192 MiB) was below what this JVM needs to start. `MaxRAMPercentage`
+only sizes the **heap** (here 75% of 192 = 144 MiB). The memory outside the heap (class metadata for
+Spring and Hibernate, JIT code cache, thread stacks, GC structures) needs well over 100 MiB on its own,
+so total usage crossed the limit during startup and the kernel killed the process.
+
+### Fix
+
+```bash
+git restore terraform/ecs.tf
+terraform -chdir=terraform plan  -var image_tag=<deployed-tag>   # - memory = 192 ; 1 to add, 1 to change, 1 to destroy
+terraform -chdir=terraform apply -var image_tag=<deployed-tag>
+```
+
+Verified the same way as failure 4: revision 8 has task memory 1024 MiB and no container limit, the
+PRIMARY deployment and the running task are revision 8 (started after the apply), the target is
+healthy, `verify.sh` passes 9/9, `terraform plan` reports `No changes`, and `git status` is clean.
+
+### Prevention
+
+- **Size memory from measurements, with headroom.** This app peaks around 330 MiB; 1024 MiB leaves room for
+  traffic spikes. Re-measure after adding dependencies.
+- **Size the heap as a percentage of the container's memory** (`MaxRAMPercentage`), never a fixed `-Xmx`.
+  It's why 512 and even 256 MiB still worked: a fixed heap tuned for a bigger box is the classic cause of
+  OOM kills after someone "saves cost" by shrinking the task.
+- **Avoid container-level hard limits** on single-container Fargate tasks. The service's `MemoryUtilization`
+  metric is measured against **task** memory, so a container killed at 192 of its own 192 MiB would show
+  only about 19% (192/1024) there, which is misleading.
+- **Alert on task stops with an OOM reason**: an EventBridge rule on ECS task state changes where
+  `containers[].reason` contains `OutOfMemoryError`.
+- **Test the limit before deploying**: `docker run --memory=X --memory-swap=X` reproduced the exact
+  behaviour locally in minutes.
