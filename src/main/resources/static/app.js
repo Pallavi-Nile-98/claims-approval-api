@@ -234,8 +234,57 @@ function claimRow(claim) {
     cell('Submitter', claim.submitterId),
     cell('Approver', claim.approverId ?? '—'),
     cell('Updated', formatDate(claim.updatedAt)),
+    actionsCell(claim),
   );
   return row;
+}
+
+// ---------- Claim actions ----------
+
+const ACTION_RESULTS = { submit: 'submitted for review', approve: 'approved', reject: 'rejected' };
+
+// Only offers the actions the API would allow. This is a convenience, not security:
+// the server checks every rule again and its error is shown if anything changed meanwhile.
+function actionsCell(claim) {
+  const td = cell('Actions', '', 'actions');
+  const { id, role } = state.user;
+
+  if (role === 'SUBMITTER' && claim.status === 'DRAFT' && claim.submitterId === id) {
+    td.append(actionButton(claim, 'submit', 'Submit', 'btn-primary'));
+  }
+  if (role === 'APPROVER' && claim.status === 'SUBMITTED') {
+    td.append(
+      actionButton(claim, 'approve', 'Approve', 'btn-primary'),
+      actionButton(claim, 'reject', 'Reject', 'btn-danger'),
+    );
+  }
+  return td;
+}
+
+function actionButton(claim, action, label, style) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `btn ${style}`;
+  button.textContent = label;
+  // Screen readers hear which claim the button acts on, not just "Approve".
+  button.setAttribute('aria-label', `${label} claim #${claim.id}: ${claim.title}`);
+  button.addEventListener('click', () => runAction(claim, action, button));
+  return button;
+}
+
+async function runAction(claim, action, button) {
+  hideBanner();
+  // Prevent double clicks while the request is in flight.
+  button.closest('td').querySelectorAll('button').forEach((b) => setBusy(b, true));
+  try {
+    const updated = await api('POST', `api/claims/${claim.id}/${action}`);
+    showBanner(`Claim #${updated.id} ${ACTION_RESULTS[action]}.`, 'success');
+  } catch (error) {
+    // e.g. 409 when another approver acted first: the server's message explains it.
+    showError(error);
+  }
+  // Refresh either way, so the table shows the claim's real current state.
+  await loadClaims();
 }
 
 // Everything from the API is inserted with textContent, never as HTML, so a claim titled

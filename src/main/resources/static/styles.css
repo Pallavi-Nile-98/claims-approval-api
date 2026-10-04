@@ -218,6 +218,16 @@ textarea {
   border-color: var(--muted);
 }
 
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--error-bg);
+}
+
 /* ---------- Create form ---------- */
 
 /* Only submitters can create claims; approvers see a short explanation instead. */
@@ -346,6 +356,20 @@ body[data-role="SUBMITTER"] #create-approver-note {
   color: var(--muted);
   font-size: 0.85rem;
   overflow-wrap: anywhere;
+}
+
+.claims-table td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.actions .btn {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+
+.actions .btn + .btn {
+  margin-left: 6px;
 }
 
 /* Status is always shown as text too, so colour is never the only signal. */
@@ -516,6 +540,19 @@ body[data-role="SUBMITTER"] #create-approver-note {
     font-weight: 600;
     text-align: left;
     flex-shrink: 0;
+  }
+
+  /* Buttons sit at the bottom right of each card; rows without actions skip the line. */
+  .claims-table td.actions {
+    justify-content: flex-end;
+  }
+
+  .claims-table td.actions::before {
+    content: none;
+  }
+
+  .claims-table td.actions:empty {
+    display: none;
   }
 
   .pager {
