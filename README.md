@@ -2,10 +2,19 @@
 
 [![CI](https://github.com/Pallavi-Nile-98/claims-approval-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Pallavi-Nile-98/claims-approval-api/actions/workflows/ci.yml)
 
-A REST API where submitters create insurance claims and approvers review them.
-Claims move through `DRAFT -> SUBMITTED -> APPROVED | REJECTED`, and invalid
-transitions are rejected with a clear error. Built with Spring Boot 3 / Java 21,
-PostgreSQL, and deployed to AWS (ECS Fargate, RDS, ALB) with Terraform.
+A small but complete insurance-claims service: submitters create claims, approvers review
+them, and every claim follows a strict lifecycle, `DRAFT -> SUBMITTED -> APPROVED | REJECTED`,
+where invalid transitions are rejected with a clear error. Built with **Java 21 / Spring Boot 3**
+and **PostgreSQL**, with a lightweight web UI, deployed to **AWS** (ECS Fargate, RDS, Application
+Load Balancer) with **Terraform**, then deliberately broken five ways to practise production
+troubleshooting.
+
+**61 automated tests** · **39 AWS resources in Terraform** · **about $0.07/hour while running** ·
+**5 production-style failures diagnosed and documented**
+
+- [Architecture](#architecture): how the pieces fit together on AWS
+- [Design decisions](#design-decisions): private database, no NAT gateway, Fargate, and what each trade-off costs
+- [Break-fix runbook](docs/RUNBOOK.md): five induced failures, each as symptom -> diagnosis -> root cause -> fix -> prevention
 
 > Work in progress. Sections below are filled in as each phase lands.
 
@@ -22,7 +31,73 @@ curl http://localhost:8080/actuator/health
 
 ## Architecture
 
-_TODO (Phase 6)_
+```mermaid
+flowchart LR
+    client(["Browser or API client"])
+
+    subgraph aws["AWS account, us-east-2"]
+        subgraph vpc["VPC 10.0.0.0/16 across 2 Availability Zones"]
+            subgraph public["Public subnets: route to the internet gateway"]
+                alb["Application Load Balancer<br/>HTTP :80"]
+                task["ECS Fargate task<br/>Spring Boot API + web UI<br/>0.25 vCPU, 1 GB, public IP"]
+            end
+            subgraph private["Private subnets: no internet route"]
+                rds[("RDS PostgreSQL 16<br/>db.t4g.micro, single-AZ")]
+            end
+        end
+        ecr["ECR<br/>image tagged with the git commit"]
+        ssm["SSM Parameter Store<br/>DB password, SecureString"]
+        cw["CloudWatch<br/>logs and 5xx alarm to SNS"]
+    end
+
+    client -->|"HTTP :80"| alb
+    alb -->|":8080, only the ALB's security group<br/>health check /actuator/health"| task
+    task -->|":5432, only the app's security group"| rds
+    task -.->|"pull image"| ecr
+    task -.->|"read password at start"| ssm
+    task -.->|"logs"| cw
+```
+
+How a request flows:
+
+1. The **ALB** receives HTTP on port 80 and forwards it to the task on port 8080. Its health check
+   calls `/actuator/health`, and ECS replaces any task the ALB marks unhealthy.
+2. The **Fargate task** runs in a public subnet with a public IP, but its security group accepts
+   traffic **only from the ALB's security group**, so nothing on the internet can reach it directly
+   (see [no NAT gateway](#2-no-nat-gateway-tasks-in-public-subnets-locked-to-the-load-balancer)).
+3. The app talks to **RDS** on port 5432. The database sits in private subnets with **no route to or
+   from the internet**, and its security group accepts only the app's security group.
+4. Before the container starts, ECS uses the **execution role** to pull the image from ECR and read
+   the database password from SSM; the dotted lines go out through the internet gateway, because
+   there is no NAT gateway.
+
+**Claim lifecycle**, enforced in the service layer and rechecked by a database `CHECK` constraint:
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT: submitter creates
+    DRAFT --> SUBMITTED: owner submits
+    SUBMITTED --> APPROVED: approver approves
+    SUBMITTED --> REJECTED: approver rejects
+    APPROVED --> [*]
+    REJECTED --> [*]
+```
+
+An approver can never review a claim they submitted (separation of duties), and two people acting on
+the same claim at once are caught by optimistic locking (409).
+
+**Code layout** (`src/main/java/io/github/pallavinile98/claims`):
+
+| Package | Responsibility |
+|---|---|
+| `controller` | HTTP only: maps requests to service calls; reads the caller's identity from headers |
+| `service` | All business rules: state transitions, roles, ownership, separation of duties |
+| `domain` | The `Claim` entity and the `ClaimStatus` state machine |
+| `repository` | Spring Data JPA queries |
+| `dto` | Request/response shapes, kept separate from the entity |
+| `exception` | Domain exceptions and the global RFC 9457 error handler |
+
+The web UI is plain HTML, CSS and JavaScript in `src/main/resources/static`, served by the same app.
 
 ## API
 
