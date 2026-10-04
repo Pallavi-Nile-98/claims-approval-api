@@ -85,13 +85,13 @@ curl -X POST localhost:8080/api/claims/1/approve -H "X-User-Id: bob"   -H "X-Use
 
 ## Tests
 
-**59 automated tests**: 41 unit + 18 integration, run by GitHub Actions on every push
+**61 automated tests**: 41 unit + 20 integration, run by GitHub Actions on every push
 and pull request.
 
 | Kind | Command | Needs Docker | What it covers |
 |---|---|---|---|
 | Unit (`*Test`, Surefire) | `./mvnw test` | No | The full 4x4 status transition table (all 16 from/to pairs); every service action from every starting status; role, ownership and self-approval rules (Mockito, no Spring) |
-| Integration (`*IT`, Failsafe) | `./mvnw verify` | Yes | The HTTP API end to end against **real PostgreSQL 16** via Testcontainers: happy paths, pagination and filtering, every 400/403/404/409 case, optimistic locking, the database `CHECK` constraint, and `/actuator/health` |
+| Integration (`*IT`, Failsafe) | `./mvnw verify` | Yes | The HTTP API end to end against **real PostgreSQL 16** via Testcontainers: happy paths, pagination and filtering, every 400/403/404/409 case, optimistic locking, the database `CHECK` constraint, `/actuator/health`, and that the web UI is packaged and served |
 
 `./mvnw verify` runs both. Integration tests use a real database rather than H2
 because H2 only imitates Postgres: constraint and timestamp behaviour can differ, so a
