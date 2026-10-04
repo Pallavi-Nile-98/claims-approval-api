@@ -327,3 +327,106 @@ replacements), `verify.sh` 9/9, and `terraform plan` reporting `No changes`.
   same pull request. A test (`HealthEndpointIT`) already pins `/actuator/health` to 200 in the app.
 - **Operational habit:** destroy, or at least check, the stack before stepping away mid-exercise. This
   incident ran unattended for two days and cost about $3-4 of credits.
+
+---
+
+## 4. App fails to start: wrong environment variable (bad `DB_URL` deployed)
+
+**Induced by** a developer-style mistake rather than a console change: the database name in
+`DB_URL` was mistyped (`claims` -> `claim`) in a **local, never-committed** edit of `terraform/ecs.tf`,
+then deployed with `terraform apply`. The hardcoded literal replaced the `${var.db_name}` reference:
+
+```diff
+- db_url = "jdbc:postgresql://${aws_db_instance.main.address}:${aws_db_instance.main.port}/${var.db_name}?sslmode=require"
++ db_url = "jdbc:postgresql://${aws_db_instance.main.address}:${aws_db_instance.main.port}/claim?sslmode=require"
+```
+
+The apply registered task definition **revision 5** and pointed the service at it.
+
+### Symptom
+
+- **Users: none.** `scripts/verify.sh` passed 9/9 throughout.
+- **ECS:** each revision-5 task started, ran for about a minute, and exited. About seven minutes after the
+  deploy, the service events showed:
+
+```
+03:10:10  (deployment ecs-svc/0595...) deployment failed: tasks failed to start.
+03:10:10  rolling back to deployment ecs-svc/6383...
+03:10:41  has stopped 1 running tasks
+```
+
+### Diagnosis
+
+```bash
+# 1. Service events: a failed deployment and an automatic rollback.
+aws ecs describe-services --cluster claims-approval-api --services claims-approval-api \
+  --query 'services[0].events[:6].[createdAt,message]' --output text
+
+# 2. Which revision is actually running now? (PRIMARY after the rollback = revision 4)
+aws ecs describe-services --cluster claims-approval-api --services claims-approval-api \
+  --query 'services[0].deployments[].[status,rolloutState,taskDefinition,runningCount,failedTasks]' --output text
+#   PRIMARY  COMPLETED  claims-approval-api:4  1  0
+
+# 3. How did the stopped tasks die? Group them by revision and exit code.
+for t in $(aws ecs list-tasks --cluster claims-approval-api --desired-status STOPPED --query 'taskArns' --output text); do
+  aws ecs describe-tasks --cluster claims-approval-api --tasks $t \
+    --query 'tasks[0].[taskDefinitionArn,containers[0].exitCode,stoppedReason]' --output text
+done | sort | uniq -c
+#   3 claims-approval-api:5  1  Essential container in task exited
+#   1 claims-approval-api:5  1  Scaling activity initiated by (deployment ...)   <- stopped by the rollback
+
+# 4. The application's own error (read the last "Caused by").
+aws logs tail /ecs/claims-approval-api --since 10m --format short | grep -E 'FATAL|Caused by'
+#   Caused by: org.postgresql.util.PSQLException: FATAL: database "claim" does not exist
+```
+
+**Exit code 1** means the application exited on its own with an error (compare with 137 in failure 5,
+where the process is killed from outside).
+
+**The wording of the database error narrows it down immediately.** Unlike failure 1's
+`Connect timed out`, here **PostgreSQL itself answered**. So the network, security groups, TLS and
+even the password all worked: PostgreSQL only checks whether the database exists *after* authenticating
+the user. The only thing left is the configuration value.
+
+### Root cause
+
+A typo in the `DB_URL` environment variable (`/claim` instead of `/claims`) was deployed in task
+definition revision 5. Every new task authenticated to RDS but asked for a database that doesn't exist,
+so Flyway, and with it the whole Spring context, failed at startup.
+
+Users never noticed because the rolling deployment kept the revision-4 task serving, and the
+**deployment circuit breaker** marked the deployment failed and rolled back on its own.
+
+### Fix
+
+**The circuit breaker fixed the outage, not the cause.** Terraform's desired state still said `claim`,
+so the next `terraform apply` by anyone would have shipped the typo again. The fix belongs in source:
+
+```bash
+git restore terraform/ecs.tf          # in a team: git revert <bad-commit> and merge
+terraform -chdir=terraform plan  -var image_tag=<deployed-tag>
+#   -/+ aws_ecs_task_definition.app   # forces replacement:  .../claim?... -> .../claims?...
+#   ~   aws_ecs_service.app
+#   Plan: 1 to add, 1 to change, 1 to destroy
+terraform -chdir=terraform apply -var image_tag=<deployed-tag>
+```
+
+The "1 to destroy" is not data: task definitions are immutable, so a change registers a new revision
+(6) and deregisters the old one (5).
+
+Verified by checking that the running task is **revision 6** and started after the apply (a new task,
+not the rollback), its `DB_URL` ends in `/claims?sslmode=require`, the target is healthy, `verify.sh`
+passes 9/9, `terraform plan` reports `No changes`, and `git status` is clean.
+
+### Prevention
+
+- **Reference values, don't retype them.** The bug was a literal that replaced `${var.db_name}`. Values
+  derived from Terraform resources and variables can't drift apart.
+- **Deploy through `scripts/deploy.sh`, not a bare `terraform apply`.** This bad deploy used a bare
+  apply, which reported success. `deploy.sh` compares the running revision with the one it registered
+  and fails loudly on a rollback (`ECS rolled back: running :4, expected :5`).
+- **Review infrastructure changes with the plan output in the pull request.** The one-word diff in
+  `DB_URL` was plainly visible in the plan.
+- **Alert on `SERVICE_DEPLOYMENT_FAILED`** (EventBridge, ECS deployment state change events). The 5xx
+  alarm stays silent when a rollback protects users.
+- **Keep the circuit breaker with rollback enabled.** It turned a potential outage into a non-event.
