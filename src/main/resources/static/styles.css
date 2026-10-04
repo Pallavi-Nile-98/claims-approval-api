@@ -1,0 +1,258 @@
+/* Colours and sizes live in one place, with a dark-mode variant. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1f2933;
+  --muted: #5f6b7a;
+  --border: #d9dee5;
+  --primary: #2457c5;
+  --primary-hover: #1c469f;
+  --on-primary: #ffffff;
+  --danger: #b42318;
+  --focus: #2457c5;
+  --info-bg: #e8f0fe;
+  --info-text: #1c3f8f;
+  --success-bg: #e6f4ea;
+  --success-text: #1e6b34;
+  --error-bg: #fdecea;
+  --error-text: #a12b20;
+  --radius: 8px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1419;
+    --surface: #182029;
+    --text: #e6e9ed;
+    --muted: #9aa5b1;
+    --border: #2c3744;
+    --primary: #6b98f0;
+    --primary-hover: #8eb0f4;
+    --on-primary: #0b1220;
+    --danger: #f2877b;
+    --focus: #8eb0f4;
+    --info-bg: #1b2a44;
+    --info-text: #b8cdf8;
+    --success-bg: #173324;
+    --success-text: #a7e3b9;
+    --error-bg: #3d1d1a;
+    --error-text: #f5b8b0;
+    --shadow: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+h1,
+h2 {
+  margin: 0;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: 1.25rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+}
+
+a {
+  color: var(--primary);
+}
+
+code {
+  font-size: 0.85em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* ---------- Layout ---------- */
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-inner,
+.container {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.topbar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tagline {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.identity {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.identity label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.container {
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.demo-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--primary);
+  background: var(--info-bg);
+  color: var(--info-text);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 0.875rem;
+}
+
+.demo-note a {
+  color: inherit;
+  margin-left: 4px;
+}
+
+/* ---------- Controls ---------- */
+
+select,
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+select,
+input,
+textarea {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+/* ---------- Messages ---------- */
+
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.banner[data-kind="success"] {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.banner[data-kind="error"] {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.banner[hidden] {
+  display: none;
+}
+
+.banner-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 640px) {
+  .identity {
+    width: 100%;
+  }
+
+  .identity select {
+    flex: 1;
+  }
+
+  .card {
+    padding: 16px;
+  }
+}

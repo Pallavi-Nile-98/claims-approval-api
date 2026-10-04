@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claims Approval</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Claims Approval</h1>
+        <p class="tagline">Submit insurance claims and review them</p>
+      </div>
+      <div class="identity">
+        <label for="user-select">Acting as</label>
+        <select id="user-select"></select>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <p class="demo-note">
+      <strong>Demo identity, no real login.</strong>
+      The user you pick is sent as the <code>X-User-Id</code> and <code>X-User-Role</code> headers.
+      <a href="swagger-ui.html">API documentation</a>
+    </p>
+
+    <div id="banner" class="banner" aria-live="polite" hidden>
+      <span id="banner-text"></span>
+      <button type="button" id="banner-close" class="banner-close" aria-label="Dismiss message">&times;</button>
+    </div>
+
+    <section class="card" aria-labelledby="claims-heading">
+      <h2 id="claims-heading">Claims</h2>
+      <p class="muted">Claims will appear here.</p>
+    </section>
+  </main>
+</body>
+</html>
