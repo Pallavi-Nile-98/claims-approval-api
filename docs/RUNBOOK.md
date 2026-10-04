@@ -234,3 +234,96 @@ started, fetched the secret, connected to RDS (`HikariPool-1 - Start completed`)
 - **Check new IAM changes before deploying**: the IAM policy simulator
   (`aws iam simulate-principal-policy`) can confirm that the execution role allows `ssm:GetParameters` on the
   parameter ARN.
+
+---
+
+## 3. Targets unhealthy: wrong ALB health check path
+
+**Induced by** changing the target group's health check path to a page that doesn't exist,
+the kind of typo a console edit could introduce:
+
+```bash
+aws elbv2 modify-target-group --target-group-arn <tg-arn> --health-check-path /actuator/healthz
+```
+
+### Symptom
+
+- **Users mostly unaffected.** `scripts/verify.sh` passed 9/9 while the only target was marked `unhealthy`.
+- **ECS churn:** `Amazon ECS replaced 1 tasks due to an unhealthy status`, every few minutes. Left
+  running unnoticed for about **two days**, this produced a continuous loop of task replacements (17
+  stopped tasks were still listed after the last hour alone).
+- During each replacement, the ~80 s while the new JVM starts can return **502** to users:
+  an intermittent outage that's easy to miss.
+
+### Diagnosis
+
+```bash
+# 1. What does the load balancer think, and why? The Reason and Description fields matter.
+aws elbv2 describe-target-health --target-group-arn <tg-arn> \
+  --query 'TargetHealthDescriptions[].[Target.Id,TargetHealth.State,TargetHealth.Reason,TargetHealth.Description]' \
+  --output text
+#   10.0.1.129  unhealthy  Target.ResponseCodeMismatch  Health checks failed with these codes: [404]
+
+# 2. What is ECS doing about it?
+aws ecs describe-services --cluster claims-approval-api --services claims-approval-api \
+  --query 'services[0].events[:4].[createdAt,message]' --output text
+#   has stopped 1 running tasks ... deregistered 1 targets ... has started 1 tasks ...
+#   Amazon ECS replaced 1 tasks due to an unhealthy status
+
+# 3. What exactly is being checked?
+aws elbv2 describe-target-groups --target-group-arns <tg-arn> \
+  --query 'TargetGroups[0].[HealthCheckPath,Matcher.HttpCode]' --output text
+#   /actuator/healthz   200
+
+# 4. Reproduce the check from outside, through the ALB.
+curl -s -o /dev/null -w '%{http_code}\n' http://<alb-dns>/actuator/healthz    # 404
+curl -s -o /dev/null -w '%{http_code}\n' http://<alb-dns>/actuator/health     # 200
+```
+
+**Target health reason codes are the fastest clue:**
+
+| Reason | Meaning |
+|---|---|
+| `Target.ResponseCodeMismatch` + `[404]` | The app answers, but not on that path: wrong **path** |
+| `Target.ResponseCodeMismatch` + `[503]` | The app answers but says it is unhealthy, e.g. DB down (failure 1) |
+| `Target.Timeout` | No answer in time: security group, app hung, or still starting |
+| `Target.FailedHealthChecks` | Connection failed: not listening yet, crashed |
+| `Elb.InitialHealthChecking` | Still in the first checks after registration |
+
+### Root cause
+
+The target group's health check path was changed to `/actuator/healthz`, which the app does not
+serve, so every health check got a 404 where 200 was expected and the healthy app was marked unhealthy.
+
+Two AWS behaviours shaped what users saw:
+
+- **The ALB fails open.** When *every* target in a target group is unhealthy, the ALB routes to all of
+  them anyway, on the basis that a possibly-broken backend beats a guaranteed 503. That's why traffic kept
+  working.
+- **ECS acts on the ALB's verdict.** A service attached to a target group replaces any task the ALB
+  reports unhealthy (after the grace period), so the healthy app was killed and restarted repeatedly.
+
+### Fix
+
+```bash
+terraform -chdir=terraform plan  -var image_tag=<deployed-tag>
+#   ~ health_check { ~ path = "/actuator/healthz" -> "/actuator/health" }
+#   Plan: 0 to add, 1 to change, 0 to destroy
+terraform -chdir=terraform apply -var image_tag=<deployed-tag>
+```
+
+Verified by the target turning `healthy`, the **same task** still running four minutes later (no more
+replacements), `verify.sh` 9/9, and `terraform plan` reporting `No changes`.
+
+### Prevention
+
+- **Alarm on `UnHealthyHostCount > 0`** for the target group. This failure ran for two days, and the
+  5xx alarm never fired because fail-open kept most requests succeeding.
+- **Alarm on task churn**: an EventBridge rule on ECS task state changes with `stoppedReason`
+  containing "unhealthy", or a metric on the number of tasks started per hour.
+- **Keep health check settings in Terraform only**; `terraform plan` showed the drift as a single
+  clear line.
+- **Health endpoints are a contract**: if the app ever changes its health path, change the ALB in the
+  same pull request. A test (`HealthEndpointIT`) already pins `/actuator/health` to 200 in the app.
+- **Operational habit:** destroy, or at least check, the stack before stepping away mid-exercise. This
+  incident ran unattended for two days and cost about $3-4 of credits.
