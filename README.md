@@ -15,19 +15,42 @@ troubleshooting.
 - [Architecture](#architecture): how the pieces fit together on AWS
 - [Design decisions](#design-decisions): private database, no NAT gateway, Fargate, and what each trade-off costs
 - [Break-fix runbook](docs/RUNBOOK.md): five induced failures, each as symptom -> diagnosis -> root cause -> fix -> prevention
-
-> Work in progress. Sections below are filled in as each phase lands.
+- [Web UI](#web-ui): screenshots of the submitter and approver views
 
 ## Run locally
 
 Requires Java 21 and Docker.
 
 ```bash
-cp .env.example .env          # then set real passwords in .env
-docker compose up -d          # starts PostgreSQL on localhost:5434
-./mvnw spring-boot:run        # on Windows: mvnw.cmd spring-boot:run
-curl http://localhost:8080/actuator/health
+cp .env.example .env          # then choose a database password in .env
+docker compose up -d          # PostgreSQL 16 on localhost:5434
+./mvnw spring-boot:run        # Windows PowerShell: .\mvnw.cmd spring-boot:run
 ```
+
+Then open **http://localhost:8080** for the web UI and **http://localhost:8080/swagger-ui.html** for the
+API documentation. Open the page through the running app, not as a file: it needs the API behind it.
+
+On Windows: if `docker compose` isn't available, use `docker-compose`; and run the Bash scripts from
+**Git Bash**, because `bash` in PowerShell starts WSL instead. More traps like these are in the
+runbook's [environment notes](docs/RUNBOOK.md#environment-notes-windows).
+
+## Web UI
+
+A single page served by the same app at `/`: plain HTML, CSS and JavaScript, with no build step and
+no separate hosting, so it ships inside the Docker image at no extra cost.
+
+| Submitter view | Approver view |
+|---|---|
+| ![Submitter view: create form and own claims with a Submit button on the draft](docs/screenshots/ui-submitter.jpg) | ![Approver view: submitted claims with Approve and Reject buttons](docs/screenshots/ui-approver.jpg) |
+
+- **Pick a demo user** (alice or carol as submitters, bob or dana as approvers); the page sends the
+  identity headers on every request and remembers the choice.
+- **Shows only the actions the API would allow**: Submit on your own drafts, Approve/Reject on
+  submitted claims. The server still enforces every rule: if someone else acted first, its 409
+  message is shown and the table refreshes.
+- **The API is the single source of truth for validation**: its messages appear next to the right field.
+- **XSS-safe**: all API data is inserted as text, never as HTML.
+- Loading and error states, keyboard focus, labelled buttons, and a stacked layout on phones.
 
 ## Architecture
 
@@ -397,3 +420,14 @@ diagnosed with real tools (AWS CLI, ECS events, CloudWatch Logs, target health, 
 | 3 | Wrong health check path | Target health `ResponseCodeMismatch [404]`, while the ALB failed open and kept serving |
 | 4 | Bad `DB_URL` deployed | Exit code 1 and `FATAL: database "claim" does not exist`, then an automatic rollback |
 | 5 | Memory limit too low | Exit code 137 and `OutOfMemoryError: container killed due to memory usage` |
+
+## Screenshots
+
+- [x] Web UI, submitter view: [`docs/screenshots/ui-submitter.jpg`](docs/screenshots/ui-submitter.jpg)
+- [x] Web UI, approver view: [`docs/screenshots/ui-approver.jpg`](docs/screenshots/ui-approver.jpg)
+- [ ] Swagger UI served through the load balancer: `docs/screenshots/swagger-ui.png`
+- [ ] ECS service, Deployments and Events tabs, ideally showing a circuit-breaker rollback: `docs/screenshots/ecs-service.png`
+- [ ] CloudWatch alarm `claims-approval-api-alb-5xx` with its 5xx graph: `docs/screenshots/cloudwatch-alarm.png`
+
+The AWS screenshots need the stack running: `bash scripts/deploy.sh`, take them in the console, then
+`bash scripts/destroy.sh` (about 20 minutes and a few cents).
