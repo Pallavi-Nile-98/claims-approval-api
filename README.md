@@ -423,11 +423,16 @@ diagnosed with real tools (AWS CLI, ECS events, CloudWatch Logs, target health, 
 
 ## Screenshots
 
-- [x] Web UI, submitter view: [`docs/screenshots/ui-submitter.jpg`](docs/screenshots/ui-submitter.jpg)
-- [x] Web UI, approver view: [`docs/screenshots/ui-approver.jpg`](docs/screenshots/ui-approver.jpg)
-- [ ] Swagger UI served through the load balancer: `docs/screenshots/swagger-ui.png`
-- [ ] ECS service, Deployments and Events tabs, ideally showing a circuit-breaker rollback: `docs/screenshots/ecs-service.png`
-- [ ] CloudWatch alarm `claims-approval-api-alb-5xx` with its 5xx graph: `docs/screenshots/cloudwatch-alarm.png`
+Taken from the live AWS deployment (account IDs removed). The web UI is shown [above](#web-ui).
 
-The AWS screenshots need the stack running: `bash scripts/deploy.sh`, take them in the console, then
-`bash scripts/destroy.sh` (about 20 minutes and a few cents).
+**Swagger UI, served through the load balancer**
+
+![Swagger UI listing the six claim endpoints, with the load balancer's address as the server](docs/screenshots/swagger-ui.jpg)
+
+**ECS service: active, 1 task running, deployment succeeded, load balancer target healthy**
+
+![ECS console showing the service active with 1 running task, deployment status Success and 1 healthy target](docs/screenshots/ecs-service.png)
+
+**CloudWatch alarm on 5xx responses from the load balancer and the app, in the OK state**
+
+![CloudWatch alarm claims-approval-api-alb-5xx in OK state with its threshold of 5 and no 5xx responses](docs/screenshots/cloudwatch-alarm.png)
